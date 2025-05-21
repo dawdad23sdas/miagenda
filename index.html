@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mi Agenda Simple con Firebase</title>
+  <style>
+    /* Aquí puedes poner tus estilos (o usar los que ya tienes) */
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1e1e1e, #333);
+      color: white;
+      max-width: 700px;
+      margin: 20px auto;
+      padding: 20px;
+      border-radius: 10px;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    #logo {
+      display: block;
+      margin: 0 auto 20px auto;
+      width: 250px;
+    }
+    #loginForm, #registroForm {
+      max-width: 350px;
+      margin: 0 auto 20px auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    input, button {
+      padding: 10px;
+      border-radius: 6px;
+      border: none;
+      font-size: 1em;
+    }
+    button {
+      background-color: #004aad;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    button:hover {
+      background-color: #002d72;
+    }
+    #calendario, #recordatorios {
+      margin-top: 20px;
+    }
+    #mensaje {
+      text-align: center;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+    ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    li {
+      background-color: #004aad88;
+      margin-bottom: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    li button {
+      background-color: #ff4d4d;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <img id="logo" src="logo.png" alt="Logo de la agenda" />
+
+  <h1>Mi Agenda Simple</h1>
+
+  <div id="mensaje"></div>
+
+  <!-- Formulario registro -->
+  <div id="registroForm">
+    <h2>Registro</h2>
+    <input type="email" id="registroEmail" placeholder="Email" />
+    <input type="password" id="registroPass" placeholder="Contraseña" />
+    <button id="btnRegistro">Registrar</button>
+  </div>
+
+  <!-- Formulario login -->
+  <div id="loginForm">
+    <h2>Iniciar Sesión</h2>
+    <input type="email" id="loginEmail" placeholder="Email" />
+    <input type="password" id="loginPass" placeholder="Contraseña" />
+    <button id="btnLogin">Entrar</button>
+    <button id="btnCerrarSesion" style="display:none; margin-top: 10px;">Cerrar sesión</button>
+  </div>
+
+  <!-- Agenda visible solo tras login -->
+  <div id="agenda" style="display:none;">
+    <div id="formulario">
+      <input type="text" id="texto" placeholder="Escribe un recordatorio" />
+      <input type="date" id="fecha" />
+      <button id="btnAgregar">Agregar</button>
+    </div>
+
+    <div id="calendario">
+      <!-- Calendario simple aquí -->
+      <div style="display:flex; justify-content:center; align-items:center; margin-bottom: 8px;">
+        <button id="btnAnterior">&lt;</button>
+        <div id="mesAnio"></div>
+        <button id="btnSiguiente">&gt;</button>
+      </div>
+      <table id="tablaCalendario">
+        <thead>
+          <tr>
+            <th>Lun</th><th>Mar</th><th>Mié</th><th>Jue</th><th>Vie</th><th>Sáb</th><th>Dom</th>
+          </tr>
+        </thead>
+        <tbody id="cuerpoCalendario"></tbody>
+      </table>
+    </div>
+
+    <ul id="listaRecordatorios"></ul>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    // Configura aquí tu Firebase (cópialo desde la consola Firebase)
+    const firebaseConfig = {
+  apiKey: "AIzaSyDigkEfeJpP64b8MzPKv25flJKpsIzOqnk",
+  authDomain: "agenda-web-e8650.firebaseapp.com",
+  projectId: "agenda-web-e8650",
+  storageBucket: "agenda-web-e8650.firebasestorage.app",
+  messagingSenderId: "775673314784",
+  appId: "1:775673314784:web:971e867338069eee86bf85",
+  measurementId: "G-J4G1JBYWNZ"
+};
+
+    // Inicializa Firebase
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    let recordatorios = [];
+    let mesActual;
+    let anioActual;
+    let usuarioActual = null;
+
+    function inicializarFecha() {
+      const hoy = new Date();
+      mesActual = hoy.getMonth();
+      anioActual = hoy.getFullYear();
+      dibujarCalendario(mesActual, anioActual);
+    }
+
+    function dibujarCalendario(mes, anio) {
+      const cuerpo = document.getElementById("cuerpoCalendario");
+      const mesAnio = document.getElementById("mesAnio");
+
+      const meses = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+      ];
+
+      mesAnio.textContent = `${meses[mes]} ${anio}`;
+
+      const primerDia = new Date(anio, mes, 1).getDay();
+      let primerDiaSemana = primerDia === 0 ? 6 : primerDia - 1;
+
+      const diasMes = new Date(anio, mes + 1, 0).getDate();
+
+      cuerpo.innerHTML = "";
+
+      let fila = document.createElement("tr");
+      let diaContador = 1;
+
+      for (let i = 0; i < primerDiaSemana; i++) {
+        let td = document.createElement("td");
+        fila.appendChild(td);
+      }
+
+      for (let i = primerDiaSemana; i < 7; i++) {
+        let td = crearCeldaDia(diaContador, mes, anio);
+        fila.appendChild(td);
+        diaContador++;
+      }
+      cuerpo.appendChild(fila);
+
+      while (diaContador <= diasMes) {
+        let fila = document.createElement("tr");
+        for (let i = 0; i < 7; i++) {
+          if (diaContador <= diasMes) {
+            let td = crearCeldaDia(diaContador, mes, anio);
+            fila.appendChild(td);
+            diaContador++;
+          } else {
+            let td = document.createElement("td");
+            fila.appendChild(td);
+          }
+        }
+        cuerpo.appendChild(fila);
+      }
+    }
+
+    function crearCeldaDia(dia, mes, anio) {
+      let td = document.createElement("td");
+      let span = document.createElement("span");
+      span.textContent = dia;
+      span.className = "numeroDia";
+      td.appendChild(span);
+
+      const fecha = `${anio}-${(mes + 1).toString().padStart(2, '0')}-${dia.toString().padStart(2, '0')}`;
+
+      recordatorios.forEach(r => {
+        if (r.fecha === fecha) {
+          let div = document.createElement("div");
+          div.className = "recordatorio";
+          div.textContent = r.texto;
+          td.appendChild(div);
+        }
+      });
+
+      return td;
+    }
+
+    // Firebase: carga recordatorios del usuario logueado
+    async function cargarRecordatoriosFirebase() {
+      if (!usuarioActual) return;
+      const lista = document.getElementById("listaRecordatorios");
+      lista.innerHTML = "";
+      recordatorios = [];
+
+      const snapshot = await db.collection('recordatorios')
+        .where('uid', '==', usuarioActual.uid)
+        .get();
+
+      snapshot.forEach(doc => {
+        recordatorios.push(doc.data());
+      });
+
+      mostrarRecordatorios(recordatorios);
+      dibujarCalendario(mesActual, anioActual);
+    }
+
+    function mostrarRecordatorios(recordatorios) {
+      const lista = document.getElementById("listaRecordatorios");
+      lista.innerHTML = "";
+      recordatorios.forEach(r => {
+        const li = document.createElement("li");
+        li.textContent = `${r.fecha} - ${r.texto}`;
+
+        const btnEliminar = document.createElement("button");
+        btnEliminar.textContent = "Eliminar";
+        btnEliminar.onclick = () => borrarRecordatorioFirebase(r.id);
+
+        li.appendChild(btnEliminar);
+        lista.appendChild(li);
+      });
+    }
+
+    async function agregarRecordatorioFirebase() {
+      const textoInput = document.getElementById("texto");
+      const fechaInput = document.getElementById("fecha");
+      const texto = textoInput.value.trim();
+      const fecha = fechaInput.value;
+
+      if (texto === "" || fecha === "") {
+        mostrarMensaje("Por favor, completa ambos campos", "error");
+        return;
+      }
+
+      if (!usuarioActual) {
+        mostrarMensaje("Debes iniciar sesión", "error");
+        return;
+      }
+
+      // Añadir a Firestore
+      try {
+        const docRef = await db.collection('recordatorios').add({
+          uid: usuarioActual.uid,
+          texto,
+          fecha
+        });
+        // Guardar id para borrar luego
+        recordatorios.push({ id: docRef.id, texto, fecha });
+        mostrarMensaje("Recordatorio guardado.", "exito");
+        dibujarCalendario(mesActual, anioActual);
+        mostrarRecordatorios(recordatorios);
+        textoInput.value = "";
+        fechaInput.value = "";
+      } catch (e) {
+        mostrarMensaje("Error al guardar recordatorio", "error");
+      }
+    }
+
+    async function borrarRecordatorioFirebase(id) {
+      if (!id) return;
+      try {
+        await db.collection('recordatorios').doc(id).delete();
+        recordatorios = recordatorios.filter(r => r.id !== id);
+        mostrarMensaje("Recordatorio eliminado.", "exito");
+        mostrarRecordatorios(recordatorios);
+        dibujarCalendario(mesActual, anioActual);
+      } catch (e) {
+        mostrarMensaje("Error al eliminar recordatorio", "error");
+      }
+    }
+
+    function mostrarMensaje(texto, tipo) {
+      const div = document.getElementById("mensaje");
+      div.textContent = texto;
+      div.style.color = tipo === "error" ? "red" : "lightgreen";
+      setTimeout(() => {
+        div.textContent = "";
+      }, 3000);
+    }
+
+    // Registro usuario
+    document.getElementById("btnRegistro").addEventListener("click", () => {
+      const email = document.getElementById("registroEmail").value.trim();
+      const pass = document.getElementById("registroPass").value.trim();
+
+      if (!email || !pass) {
+        mostrarMensaje("Completa email y contraseña", "error");
+        return;
+      }
+
+      auth.createUserWithEmailAndPassword(email, pass)
+        .then(userCredential => {
+          mostrarMensaje("Registro exitoso. Ya puedes iniciar sesión.", "exito");
+          document.getElementById("registroEmail").value = "";
+          document.getElementById("registroPass").value = "";
+        })
+        .catch(error => {
+          mostrarMensaje(error.message, "error");
+        });
+    });
+
+    // Login usuario
+    document.getElementById("btnLogin").addEventListener("click", () => {
+      const email = document.getElementById("loginEmail").value.trim();
+      const pass = document.getElementById("loginPass").value.trim();
+
+      if (!email || !pass) {
+        mostrarMensaje("Completa email y contraseña", "error");
+        return;
+      }
+
+      auth.signInWithEmailAndPassword(email, pass)
+        .catch(error => {
+          mostrarMensaje(error.message, "error");
+        });
+    });
+
+    // Logout
+    document.getElementById("btnCerrarSesion").addEventListener("click", () => {
+      auth.signOut();
+    });
+
+    // Detectar cambios en estado de autenticación
+    auth.onAuthStateChanged(user => {
+      usuarioActual = user;
+      if (user) {
+        mostrarMensaje(`Hola, ${user.email}`, "exito");
+        document.getElementById("registroForm").style.display = "none";
+        document.getElementById("loginForm").style.display = "none";
+        document.getElementById("agenda").style.display = "block";
+        document.getElementById("btnCerrarSesion").style.display = "block";
+
+        inicializarFecha();
+        cargarRecordatoriosFirebase();
+
+      } else {
+        document.getElementById("registroForm").style.display = "block";
+        document.getElementById("loginForm").style.display = "block";
+        document.getElementById("agenda").style.display = "none";
+        document.getElementById("btnCerrarSesion").style.display = "none";
+        recordatorios = [];
+      }
+    });
+
+    // Botones calendario
+    document.getElementById("btnAnterior").addEventListener("click", () => {
+      if (mesActual === 0) {
+        mesActual = 11;
+        anioActual--;
+      } else {
+        mesActual--;
+      }
+      dibujarCalendario(mesActual, anioActual);
+    });
+
+    document.getElementById("btnSiguiente").addEventListener("click", () => {
+      if (mesActual === 11) {
+        mesActual = 0;
+        anioActual++;
+      } else {
+        mesActual++;
+      }
+      dibujarCalendario(mesActual, anioActual);
+    });
+
+    // Agregar recordatorio
+    document.getElementById("btnAgregar").addEventListener("click", agregarRecordatorioFirebase);
+
+  </script>
+</body>
+</html>
